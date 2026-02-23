@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(git config:*)",
+      "Bash(git -C \"C:\\\\Users\\\\ianfe\\\\OneDrive\\\\Documents\\\\GitHub\\\\parseval\" log --oneline --all)",
+      "Bash(pip --version:*)",
+      "Bash(python:*)",
+      "Bash(pip index:*)",
+      "Bash(findstr:*)",
+      "Bash(pip install:*)",
+      "Bash(ping:*)",
+      "Bash(python3:*)",
+      "Bash(taskkill:*)",
+      "Bash(Start-Sleep -Seconds 1)",
+      "Bash(Start-Process python -ArgumentList \"app.py\" -WindowStyle Hidden)",
+      "Bash(exit 0)",
+      "Bash(curl:*)",
+      "Bash(powershell.exe -ExecutionPolicy Bypass -Command \"Get-Process python | Select-Object Id, StartTime, CommandLine | Format-List\")",
+      "Bash(wmic process where \"name=''python.exe''\" get processid,commandline)",
+      "Bash(powershell.exe -ExecutionPolicy Bypass -Command \"Get-Process python | Stop-Process -Force; Write-Host ''All Python processes killed''\")",
+      "Bash(powershell.exe -ExecutionPolicy Bypass -Command \"Start-Process python -ArgumentList ''C:\\\\Users\\\\ianfe\\\\OneDrive\\\\Documents\\\\GitHub\\\\parseval\\\\app.py'' -WorkingDirectory ''C:\\\\Users\\\\ianfe\\\\OneDrive\\\\Documents\\\\GitHub\\\\parseval'' -WindowStyle Normal\")",
+      "Bash(powershell.exe -ExecutionPolicy Bypass -Command \"Get-Process python -ErrorAction SilentlyContinue | Stop-Process -Force\")"
+    ]
+  }
+}

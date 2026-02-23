@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Parseval — Authorship Analysis</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<header>
+  <h1>Parseval</h1>
+  <p>Writing thumbprint &amp; authorship analysis</p>
+</header>
+
+<div id="app">
+
+  <!-- ── Sidebar ──────────────────────────────────────────────────────────── -->
+  <aside id="sidebar">
+
+    <div class="sidebar-tabs" role="tablist">
+      <button class="sidebar-tab active" data-panel="corpus-panel" role="tab">
+        Corpus
+      </button>
+      <button class="sidebar-tab" data-panel="analyze-panel" role="tab">
+        Analyze
+      </button>
+      <button class="sidebar-tab" data-panel="self-panel" role="tab">
+        Self
+      </button>
+      <button class="sidebar-tab" data-panel="logs-panel" role="tab">
+        Logs
+      </button>
+    </div>
+
+    <!-- Panel: Corpus Manager -->
+    <div id="corpus-panel" class="sidebar-panel active">
+      <div id="health-banner" style="display:none">
+        <span id="health-message"></span>
+        <button onclick="document.getElementById('health-banner').style.display='none'" title="Dismiss">✕</button>
+      </div>
+
+      <div class="sidebar-scroll">
+        <div class="card">
+          <div class="card-title">Create Thumbprint</div>
+
+          <label for="tp-name">Author / Label</label>
+          <input type="text" id="tp-name" placeholder="e.g. Student A" />
+
+          <label>Reference Files (.docx, .txt, .md)</label>
+          <div class="file-drop" id="tp-drop">
+            <input type="file" id="tp-files" multiple accept=".docx,.txt,.md,.text" />
+            Click or drag files here
+          </div>
+          <div class="file-list" id="tp-file-list"></div>
+
+          <div id="tp-error" class="error-box" style="display:none"></div>
+
+          <button class="btn btn-primary" id="tp-create-btn" onclick="createThumbprint()">
+            Build Thumbprint
+          </button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Saved Thumbprints</div>
+          <div id="thumbprint-list">
+            <div class="empty-state">
+              <span class="icon">🗂</span>
+              No thumbprints yet. Create one above.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel: Corpus Analysis -->
+    <div id="analyze-panel" class="sidebar-panel">
+      <div class="sidebar-scroll">
+        <div class="card">
+          <div class="card-title">Analyze Against Thumbprint</div>
+
+          <label for="analyze-tp-select">Select Thumbprint</label>
+          <select id="analyze-tp-select">
+            <option value="">— choose a thumbprint —</option>
+          </select>
+
+          <label>Document to Analyze (.docx, .txt, .md)</label>
+          <div class="file-drop" id="analyze-drop">
+            <input type="file" id="analyze-file" accept=".docx,.txt,.md,.text" />
+            Click or drag a document here
+          </div>
+          <div class="file-list" id="analyze-file-label"></div>
+
+          <div id="analyze-error" class="error-box" style="display:none"></div>
+
+          <button class="btn btn-primary" id="analyze-btn" onclick="analyzeCorpus()">
+            Analyze Document
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel: Self Analysis -->
+    <div id="self-panel" class="sidebar-panel">
+      <div class="sidebar-scroll">
+        <div class="card">
+          <div class="card-title">Intra-Document Analysis</div>
+          <p style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.75rem">
+            Detects style shifts within a single document — no reference corpus needed.
+            Paragraphs that differ from the rest of the document are highlighted in red.
+          </p>
+
+          <label>Document to Analyze (.docx, .txt, .md)</label>
+          <div class="file-drop" id="self-drop">
+            <input type="file" id="self-file" accept=".docx,.txt,.md,.text" />
+            Click or drag a document here
+          </div>
+          <div class="file-list" id="self-file-label"></div>
+
+          <div id="self-error" class="error-box" style="display:none"></div>
+
+          <button class="btn btn-primary" id="self-btn" onclick="analyzeSelf()">
+            Analyze for Style Shifts
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel: Logs -->
+    <div id="logs-panel" class="sidebar-panel">
+      <div class="sidebar-scroll">
+        <div class="card">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+            Activity Log
+            <button class="btn btn-secondary" style="padding:0.2rem 0.6rem;font-size:0.75rem" onclick="logEntries.length=0;renderLogs()">Clear</button>
+          </div>
+          <div id="log-entries"></div>
+        </div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ── Main content ──────────────────────────────────────────────────────── -->
+  <main id="main">
+    <div class="main-header" id="main-header">
+      <h2>Welcome to Parseval</h2>
+      <p>Select an analysis mode from the sidebar to get started.</p>
+    </div>
+
+    <div id="results-area">
+      <div id="loading-overlay">
+        <span class="spinner"></span>
+        Analyzing&hellip; this may take a moment on first run.
+      </div>
+
+      <div id="results-content">
+        <div class="empty-state">
+          <span class="icon">✍️</span>
+          Results will appear here after analysis.
+        </div>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<!-- Custom modal — replaces browser alert/confirm (which show "localhost:5000 says") -->
+<div id="modal-overlay" style="display:none">
+  <div id="modal-box">
+    <div id="modal-title"></div>
+    <div id="modal-message"></div>
+    <div id="modal-buttons"></div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+[parseval] Starting server at http://localhost:5000
+[parseval] Press Ctrl+C to stop.
+ * Serving Flask app 'app'
+ * Debug mode: on

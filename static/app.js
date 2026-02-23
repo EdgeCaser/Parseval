@@ -292,7 +292,7 @@ function renderThumbprintList() {
         ${tp.paragraph_count} paragraphs · ${tp.source_files.length} file(s) · ${formatDate(tp.created_at)}
       </div>
       <div class="thumbprint-actions">
-        <button class="btn btn-danger" onclick="event.stopPropagation(); deleteThumbprint('${tp.id}', '${escapeHtml(tp.name).replace(/'/g, "\\'")}')">
+        <button class="btn btn-danger" onclick="event.stopPropagation(); deleteThumbprint('${tp.id}')">
           Delete
         </button>
       </div>
@@ -356,7 +356,9 @@ async function createThumbprint() {
   }
 }
 
-async function deleteThumbprint(id, name) {
+async function deleteThumbprint(id) {
+  const tp = thumbprints.find(t => t.id === id);
+  const name = tp ? tp.name : id;
   try {
     await showConfirm(`Delete thumbprint "${name}"?\n\nThis cannot be undone.`, {
       title: 'Delete Thumbprint',

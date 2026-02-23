@@ -4,10 +4,10 @@ Run with: python app.py
 Access at: http://localhost:5000
 """
 
+import logging
 import os
-import sys
 import threading
-import traceback
+import uuid
 
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
@@ -19,10 +19,18 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
+# Configurable CORS origins (comma-separated); default localhost only
+_cors_origins = os.environ.get("PARSEVAL_CORS_ORIGINS", "http://localhost:5000,http://127.0.0.1:5000")
+CORS_ORIGINS = [o.strip() for o in _cors_origins.split(",") if o.strip()]
+
 app = Flask(__name__, static_folder=STATIC_DIR)
-CORS(app)
+CORS(app, origins=CORS_ORIGINS)
 app.config["UPLOAD_FOLDER"] = UPLOAD_DIR
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
+
+# Input limits
+MAX_THUMBPRINT_NAME_LEN = 200
+MAX_FILES_PER_THUMBPRINT = 50
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -41,11 +49,14 @@ def get_model():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _save_upload(file_storage) -> tuple:
-    """Save an uploaded FileStorage to the uploads dir. Returns (path, filename)."""
+    """Save an uploaded FileStorage to the uploads dir. Returns (path, filename).
+    On-disk path uses a unique name to avoid collisions; filename is original for display/type."""
     filename = secure_filename(file_storage.filename)
     if not corpus.allowed_file(filename):
         raise ValueError(f"Unsupported file type: '{filename}'. Allowed: .docx, .txt, .md")
-    path = os.path.join(UPLOAD_DIR, filename)
+    ext = os.path.splitext(filename)[1]
+    unique_name = f"{uuid.uuid4()}{ext}"
+    path = os.path.join(UPLOAD_DIR, unique_name)
     file_storage.save(path)
     return path, filename
 
@@ -123,10 +134,14 @@ def create_thumbprint():
     name = request.form.get("name", "").strip()
     if not name:
         return _error("A name is required for the thumbprint.")
+    if len(name) > MAX_THUMBPRINT_NAME_LEN:
+        return _error(f"Thumbprint name must be at most {MAX_THUMBPRINT_NAME_LEN} characters.")
 
     files = request.files.getlist("files")
     if not files or all(f.filename == "" for f in files):
         return _error("At least one file is required.")
+    if len([f for f in files if f.filename]) > MAX_FILES_PER_THUMBPRINT:
+        return _error(f"At most {MAX_FILES_PER_THUMBPRINT} files are allowed per thumbprint.")
 
     saved_paths = []
     saved_names = []
@@ -149,9 +164,8 @@ def create_thumbprint():
     except ValueError as e:
         return _error(str(e))
     except Exception as e:
-        traceback.print_exc(file=sys.stdout)
-        sys.stdout.flush()
-        return _error(f"Failed to create thumbprint: {str(e)}", 500)
+        logging.exception("Failed to create thumbprint")
+        return _error("An unexpected error occurred.", 500)
     finally:
         _cleanup(*saved_paths)
 
@@ -161,20 +175,28 @@ def delete_thumbprint(thumbprint_id):
     try:
         storage.delete_thumbprint(thumbprint_id)
         return jsonify({"deleted": thumbprint_id})
+    except ValueError:
+        return _error("Invalid thumbprint id", 400)
     except FileNotFoundError:
-        return _error(f"Thumbprint not found: {thumbprint_id}", 404)
-    except Exception as e:
-        return _error(str(e), 500)
+        return _error("Thumbprint not found.", 404)
+    except Exception:
+        logging.exception("Failed to delete thumbprint")
+        return _error("An unexpected error occurred.", 500)
 
 
 @app.route("/api/thumbprints/<thumbprint_id>/regenerate", methods=["POST"])
 def regenerate_thumbprint(thumbprint_id):
-    if not storage.thumbprint_exists(thumbprint_id):
-        return _error(f"Thumbprint not found: {thumbprint_id}", 404)
+    try:
+        if not storage.thumbprint_exists(thumbprint_id):
+            return _error("Thumbprint not found.", 404)
+    except ValueError:
+        return _error("Invalid thumbprint id", 400)
 
     files = request.files.getlist("files")
     if not files or all(f.filename == "" for f in files):
         return _error("At least one file is required for regeneration.")
+    if len([f for f in files if f.filename]) > MAX_FILES_PER_THUMBPRINT:
+        return _error(f"At most {MAX_FILES_PER_THUMBPRINT} files are allowed per thumbprint.")
 
     saved_paths = []
     saved_names = []
@@ -191,10 +213,13 @@ def regenerate_thumbprint(thumbprint_id):
         meta = thumbprint_module.regenerate_thumbprint(thumbprint_id, saved_paths, saved_names)
         return jsonify(meta)
 
-    except (ValueError, FileNotFoundError) as e:
+    except ValueError as e:
         return _error(str(e))
-    except Exception as e:
-        return _error(f"Failed to regenerate thumbprint: {str(e)}", 500)
+    except FileNotFoundError:
+        return _error("Thumbprint not found.", 404)
+    except Exception:
+        logging.exception("Failed to regenerate thumbprint")
+        return _error("An unexpected error occurred.", 500)
     finally:
         _cleanup(*saved_paths)
 
@@ -209,9 +234,11 @@ def analyze_corpus():
     thumbprint_id = request.form.get("thumbprint_id", "").strip()
     if not thumbprint_id:
         return _error("thumbprint_id is required.")
-
-    if not storage.thumbprint_exists(thumbprint_id):
-        return _error(f"Thumbprint not found: {thumbprint_id}", 404)
+    try:
+        if not storage.thumbprint_exists(thumbprint_id):
+            return _error("Thumbprint not found.", 404)
+    except ValueError:
+        return _error("Invalid thumbprint id", 400)
 
     file = request.files.get("file")
     if not file or file.filename == "":
@@ -243,10 +270,11 @@ def analyze_corpus():
 
     except ValueError as e:
         return _error(str(e))
-    except FileNotFoundError as e:
-        return _error(str(e), 404)
-    except Exception as e:
-        return _error(f"Analysis failed: {str(e)}", 500)
+    except FileNotFoundError:
+        return _error("Thumbprint not found.", 404)
+    except Exception:
+        logging.exception("Analysis failed")
+        return _error("An unexpected error occurred.", 500)
     finally:
         _cleanup(saved_path)
 
@@ -280,8 +308,9 @@ def analyze_self():
 
     except ValueError as e:
         return _error(str(e))
-    except Exception as e:
-        return _error(f"Analysis failed: {str(e)}", 500)
+    except Exception:
+        logging.exception("Analysis failed")
+        return _error("An unexpected error occurred.", 500)
     finally:
         _cleanup(saved_path)
 
@@ -291,11 +320,13 @@ def analyze_self():
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print("[parseval] Starting server at http://localhost:5000")
+    host = os.environ.get("PARSEVAL_HOST", "127.0.0.1")
+    port = 5000
+    print(f"[parseval] Starting server at http://{host}:{port}")
     print("[parseval] Press Ctrl+C to stop.")
     # Use waitress instead of Werkzeug's dev server.
     # Werkzeug can drop long-running connections (thumbprint building takes 15-60s)
     # and its reloader interferes with torch/sentence-transformers file loads.
     # Waitress is a production-grade WSGI server with no such limitations.
     from waitress import serve
-    serve(app, host="0.0.0.0", port=5000, threads=4, channel_timeout=300)
+    serve(app, host=host, port=port, threads=4, channel_timeout=300)

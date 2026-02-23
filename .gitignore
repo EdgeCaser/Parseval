@@ -19,6 +19,8 @@ uploads/
 # OS
 .DS_Store
 Thumbs.db
+# Windows reserved device name (avoid accidental file)
+nul
 
 # Environment
 .env

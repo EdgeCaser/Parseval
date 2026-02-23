@@ -94,3 +94,7 @@ For **self analysis**, each paragraph is scored against a leave-one-out profile 
 | Word documents | `.docx` |
 | Plain text | `.txt`, `.text` |
 | Markdown | `.md` |
+
+## License
+
+This project is licensed under the **PolyForm Noncommercial License 1.0.0**. You may use and modify it for noncommercial purposes. Commercial use requires separate permission from the licensor. See [LICENSE](LICENSE) in this repository or [polyformproject.org/licenses/noncommercial/1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0) for the full terms.

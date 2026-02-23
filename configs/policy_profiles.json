@@ -1,0 +1,25 @@
+{
+  "profiles": [
+    {
+      "name": "conservative",
+      "probability_threshold": 0.98,
+      "min_tokens": 150,
+      "min_contiguous_windows": 3,
+      "max_fpr": 0.01
+    },
+    {
+      "name": "balanced",
+      "probability_threshold": 0.95,
+      "min_tokens": 120,
+      "min_contiguous_windows": 2,
+      "max_fpr": 0.02
+    },
+    {
+      "name": "investigative",
+      "probability_threshold": 0.90,
+      "min_tokens": 80,
+      "min_contiguous_windows": 2,
+      "max_fpr": 0.05
+    }
+  ]
+}

@@ -87,6 +87,23 @@ Each paragraph is scored using two complementary methods:
 
 For **self analysis**, each paragraph is scored against a leave-one-out profile built from all other paragraphs, detecting local style outliers without any external reference.
 
+
+## Evaluation Scaffolding (v0)
+
+The repository now includes initial benchmarking scaffolding under `parseval/eval/` plus policy/config docs.
+
+Example baseline pipeline run (with a JSONL benchmark dataset):
+
+```bash
+python -m parseval.eval.run_baseline   --dataset data/benchmarks/default.jsonl   --out reports/baseline.json
+```
+
+Reference docs:
+- `docs/EVALUATION_PROTOCOL.md`
+- `docs/MODEL_CARD_TEMPLATE.md`
+- `configs/policy_profiles.json`
+- `configs/benchmark_profiles.json`
+
 ## Supported File Formats
 
 | Format | Extension |

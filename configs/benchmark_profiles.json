@@ -1,0 +1,15 @@
+{
+  "profiles": [
+    {
+      "name": "default_v1",
+      "description": "Default benchmark profile for Parseval scorer baseline.",
+      "dataset_path": "data/benchmarks/default.jsonl",
+      "split": {
+        "kind": "document_disjoint",
+        "test_ratio": 0.2,
+        "seed": 13
+      },
+      "policy": "balanced"
+    }
+  ]
+}

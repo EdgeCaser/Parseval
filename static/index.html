@@ -54,6 +54,11 @@
           </div>
           <div class="file-list" id="tp-file-list"></div>
 
+          <label class="checkbox-label" style="margin-top:0.5rem;display:flex;align-items:center;gap:0.5rem;font-size:0.875rem">
+            <input type="checkbox" id="tp-use-mahal" />
+            Use Mahalanobis distance (accounts for feature correlations; can be more accurate with enough paragraphs)
+          </label>
+
           <div id="tp-error" class="error-box" style="display:none"></div>
 
           <button class="btn btn-primary" id="tp-create-btn" onclick="createThumbprint()">
@@ -132,7 +137,10 @@
         <div class="card">
           <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
             Activity Log
-            <button class="btn btn-secondary" style="padding:0.2rem 0.6rem;font-size:0.75rem" onclick="logEntries.length=0;renderLogs()">Clear</button>
+            <div style="display:flex;gap:0.4rem">
+              <button class="btn btn-secondary" style="padding:0.2rem 0.6rem;font-size:0.75rem" onclick="copyLogsToClipboard()" title="Copy all logs to clipboard">Copy</button>
+              <button class="btn btn-secondary" style="padding:0.2rem 0.6rem;font-size:0.75rem" onclick="logEntries.length=0;renderLogs()">Clear</button>
+            </div>
           </div>
           <div id="log-entries"></div>
         </div>

@@ -4,10 +4,26 @@ Run with: python app.py
 Access at: http://localhost:5000
 """
 
+import json as _json
 import logging
 import os
+import sys
 import threading
 import uuid
+
+# #region agent log
+_DEBUG_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "debug-1a3ab6.log")
+def _debug_log(handler, message, data, hypothesis_id):
+    payload = {"sessionId": "1a3ab6", "location": handler, "message": message, "data": data, "hypothesisId": hypothesis_id, "timestamp": __import__("time").time() * 1000}
+    line = _json.dumps(payload) + "\n"
+    try:
+        with open(_DEBUG_LOG, "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception as _e:
+        sys.stderr.write(f"[debug] log write failed: {_e!r} path={_DEBUG_LOG!r}\n")
+    sys.stderr.write(f"[debug] {handler}: {message} data={data}\n")
+    sys.stderr.flush()
+# #endregion
 
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
@@ -31,6 +47,8 @@ app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
 # Input limits
 MAX_THUMBPRINT_NAME_LEN = 200
 MAX_FILES_PER_THUMBPRINT = 50
+# Max characters per paragraph text in analyze response (avoids huge JSON / browser storage issues)
+MAX_PARAGRAPH_TEXT_IN_RESPONSE = 2000
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -158,7 +176,8 @@ def create_thumbprint():
         if not saved_paths:
             return _error("No valid files were uploaded.")
 
-        meta = thumbprint_module.create_thumbprint(name, saved_paths, saved_names)
+        use_mahal = request.form.get("use_mahal", "").strip().lower() in ("1", "true", "yes")
+        meta = thumbprint_module.create_thumbprint(name, saved_paths, saved_names, use_mahal=use_mahal)
         return jsonify(meta), 201
 
     except ValueError as e:
@@ -210,7 +229,8 @@ def regenerate_thumbprint(thumbprint_id):
                 except ValueError as e:
                     return _error(str(e))
 
-        meta = thumbprint_module.regenerate_thumbprint(thumbprint_id, saved_paths, saved_names)
+        use_mahal = request.form.get("use_mahal", "").strip().lower() in ("1", "true", "yes")
+        meta = thumbprint_module.regenerate_thumbprint(thumbprint_id, saved_paths, saved_names, use_mahal=use_mahal)
         return jsonify(meta)
 
     except ValueError as e:
@@ -228,10 +248,36 @@ def regenerate_thumbprint(thumbprint_id):
 # Routes — Analysis
 # ─────────────────────────────────────────────────────────────────────────────
 
+@app.before_request
+def _log_analyze_request():
+    """Log as soon as request hits server, before body is parsed (for debug)."""
+    if request.path == "/api/analyze":
+        # #region agent log
+        _debug_log("app.before_request", f"{request.method} /api/analyze", {"method": request.method, "content_length": request.content_length}, "H0")
+        # #endregion
+
+
+@app.route("/api/debug-ping", methods=["GET", "POST"])
+def debug_ping():
+    """Debug: confirms server receives requests; writes to debug log and returns 200."""
+    # #region agent log
+    data = {"method": request.method}
+    if request.method == "POST":
+        data["content_length"] = request.content_length
+        data["content_type"] = request.content_type
+        # Don't access request.form/request.files here - that reads the body; we just log headers
+    _debug_log("app.debug_ping", f"{request.method} /api/debug-ping", data, "H0")
+    # #endregion
+    return jsonify({"ok": True})
+
+
 @app.route("/api/analyze", methods=["POST"])
 def analyze_corpus():
     """Analyze a document against a saved thumbprint (corpus mode)."""
     thumbprint_id = request.form.get("thumbprint_id", "").strip()
+    # #region agent log
+    _debug_log("app.analyze_corpus.entry", "analyze_corpus called", {"thumbprint_id": thumbprint_id}, "H1")
+    # #endregion
     if not thumbprint_id:
         return _error("thumbprint_id is required.")
     try:
@@ -249,6 +295,10 @@ def analyze_corpus():
         saved_path, saved_name = _save_upload(file)
 
         meta, embedding_data = storage.load_thumbprint(thumbprint_id)
+        # #region agent log
+        profile = meta.get("stylometric_profile") or {}
+        _debug_log("app.analyze_corpus.after_load", "load_thumbprint ok", {"profile_keys": list(profile.keys()), "has_covariance_inv": "covariance_inv" in profile, "profile_dim": profile.get("feature_dim")}, "H2")
+        # #endregion
 
         text = corpus.extract_text(saved_path, saved_name)
         paragraphs = corpus.split_paragraphs_all(text)
@@ -257,22 +307,45 @@ def analyze_corpus():
             return _error("No readable content found in the document.")
 
         result = scorer.score_corpus_mode(paragraphs, meta, embedding_data)
+        # #region agent log
+        _debug_log("app.analyze_corpus.after_score", "score_corpus_mode ok", {"paragraph_count": len(result.get("paragraphs", []))}, "H4")
+        # #endregion
+
+        # Trim paragraph text in response to avoid huge payloads (Chrome/browser storage limits)
+        paragraphs_out = []
+        total_chars_before = 0
+        total_chars_after = 0
+        for p in result["paragraphs"]:
+            p_copy = dict(p)
+            t = p_copy.get("text") or ""
+            total_chars_before += len(t)
+            if isinstance(t, str) and len(t) > MAX_PARAGRAPH_TEXT_IN_RESPONSE:
+                p_copy["text"] = t[:MAX_PARAGRAPH_TEXT_IN_RESPONSE] + "\u2026"
+            total_chars_after += len(p_copy.get("text") or "")
+            paragraphs_out.append(p_copy)
+        # #region agent log
+        _debug_log("app.analyze_corpus.response_trim", "paragraph text trimmed for response", {"total_chars_before": total_chars_before, "total_chars_after": total_chars_after, "n_paragraphs": len(paragraphs_out)}, "H4")
+        # #endregion
 
         return jsonify({
             "mode": "corpus",
             "thumbprint_id": thumbprint_id,
             "thumbprint_name": meta.get("name"),
+            "thumbprint_low_confidence": meta.get("low_confidence", False),
             "filename": saved_name,
             "overall_score": result["overall_score"],
             "paragraph_count": len(paragraphs),
-            "paragraphs": result["paragraphs"],
+            "paragraphs": paragraphs_out,
         })
 
     except ValueError as e:
         return _error(str(e))
     except FileNotFoundError:
         return _error("Thumbprint not found.", 404)
-    except Exception:
+    except Exception as e:
+        # #region agent log
+        _debug_log("app.analyze_corpus.except", "analyze_corpus exception", {"type": type(e).__name__, "message": str(e)}, "H1")
+        # #endregion
         logging.exception("Analysis failed")
         return _error("An unexpected error occurred.", 500)
     finally:
@@ -320,13 +393,13 @@ def analyze_self():
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    host = os.environ.get("PARSEVAL_HOST", "127.0.0.1")
-    port = 5000
-    print(f"[parseval] Starting server at http://{host}:{port}")
+    print("[parseval] Starting server at http://localhost:5000")
     print("[parseval] Press Ctrl+C to stop.")
     # Use waitress instead of Werkzeug's dev server.
     # Werkzeug can drop long-running connections (thumbprint building takes 15-60s)
     # and its reloader interferes with torch/sentence-transformers file loads.
     # Waitress is a production-grade WSGI server with no such limitations.
+    # Listen on both IPv4 and IPv6 loopback so browsers that resolve localhost
+    # to ::1 (IPv6) still connect — without exposing the server to the network.
     from waitress import serve
-    serve(app, host=host, port=port, threads=4, channel_timeout=300)
+    serve(app, listen="127.0.0.1:5000 [::1]:5000", threads=4, channel_timeout=300)

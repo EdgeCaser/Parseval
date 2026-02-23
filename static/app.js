@@ -51,6 +51,18 @@ function renderLogs() {
   }).join('');
 }
 
+function copyLogsToClipboard() {
+  const text = logEntries.map(e => {
+    const detail = e.detail ? `\n  ${e.detail}` : '';
+    return `[${e.level.toUpperCase()}] ${e.time} ${e.message}${detail}`;
+  }).join('\n');
+  navigator.clipboard.writeText(text).then(() => {
+    log('info', 'Logs copied to clipboard');
+  }).catch(() => {
+    log('warn', 'Clipboard copy failed — try selecting and copying manually');
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Custom modal (replaces alert / confirm)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -187,20 +199,29 @@ function bindFileInput(inputId, listId, multiple) {
   const input = el(inputId);
   input.addEventListener('change', function () {
     const newFiles = Array.from(this.files);
-    if (multiple) {
-      // Merge, deduplicate by name+size
-      const existing = fileSets[inputId];
-      for (const f of newFiles) {
-        if (!existing.some(e => e.name === f.name && e.size === f.size)) {
-          existing.push(f);
+    // Read each File into a detached Blob immediately, so the file object
+    // stays valid even after this.value is reset and the input is cleared.
+    // Store as {blob, name, size} so we can still show filename/size in the UI.
+    const readAll = newFiles.map(f => f.arrayBuffer().then(buf => ({
+      blob: new Blob([buf], { type: f.type || 'application/octet-stream' }),
+      name: f.name,
+      size: f.size,
+    })));
+    Promise.all(readAll).then(entries => {
+      if (multiple) {
+        const existing = fileSets[inputId];
+        for (const e of entries) {
+          if (!existing.some(x => x.name === e.name && x.size === e.size)) {
+            existing.push(e);
+          }
         }
+      } else {
+        fileSets[inputId] = entries.slice(0, 1);
       }
-    } else {
-      fileSets[inputId] = newFiles.slice(0, 1);
-    }
-    // Reset the input so the same file can be re-added after removal
+      renderFileList(inputId, listId);
+    });
+    // Reset the input so the same file can be re-selected after removal
     this.value = '';
-    renderFileList(inputId, listId);
   });
 }
 
@@ -225,6 +246,8 @@ function removeFile(inputId, listId, index) {
   renderFileList(inputId, listId);
 }
 
+// Returns array of {blob, name, size} entries.
+// For FormData, append entry.blob with the filename: fd.append('file', entry.blob, entry.name)
 function getFiles(inputId) {
   return fileSets[inputId] || [];
 }
@@ -330,13 +353,15 @@ async function createThumbprint() {
 
   const fd = new FormData();
   fd.append('name', name);
-  for (const f of files) fd.append('files', f);
+  fd.append('use_mahal', el('tp-use-mahal').checked ? '1' : '0');
+  for (const f of files) fd.append('files', f.blob, f.name);
 
   try {
     const resp = await fetch('/api/thumbprints', { method: 'POST', body: fd });
-    const data = await resp.json();
+    let data;
+    try { data = await resp.json(); } catch (_) { data = {}; }
     if (!resp.ok) {
-      const msg = data.error || 'Failed to create thumbprint.';
+      const msg = data.error || `Server error (HTTP ${resp.status}).`;
       showError('tp-error', msg);
       log('error', 'Thumbprint creation failed', msg);
       return;
@@ -399,23 +424,35 @@ async function analyzeCorpus() {
   if (!tpId) { showError('analyze-error', 'Please select a thumbprint.'); return; }
   if (files.length === 0) { showError('analyze-error', 'Please select a document to analyze.'); return; }
 
+  const file = files[0];
+  const maxSize = 10 * 1024 * 1024; // 10 MB
+  if (file.size > maxSize) {
+    showError('analyze-error', `Document is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum size is 10 MB. Try a shorter document.`);
+    return;
+  }
+
   const btn = el('analyze-btn');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> Analyzing…';
   setLoading(true);
-  log('info', `Starting corpus analysis: "${files[0].name}" vs thumbprint ${tpId}…`);
+  log('info', `Starting corpus analysis: "${file.name}" (${(file.size / 1024).toFixed(1)} KB) vs thumbprint ${tpId}…`);
 
   const fd = new FormData();
   fd.append('thumbprint_id', tpId);
-  fd.append('file', files[0]);
+  fd.append('file', file.blob, file.name);
 
   try {
     const resp = await fetch('/api/analyze', { method: 'POST', body: fd });
-    const data = await resp.json();
+    let data;
+    try {
+      data = await resp.json();
+    } catch (_) {
+      data = {};
+    }
     if (!resp.ok) {
-      const msg = data.error || 'Analysis failed.';
+      const msg = data.error || `Server error (HTTP ${resp.status}).`;
       showError('analyze-error', msg);
-      log('error', 'Corpus analysis failed', msg);
+      log('error', `Corpus analysis failed (HTTP ${resp.status})`, msg);
       setLoading(false);
       return;
     }
@@ -439,7 +476,10 @@ function renderCorpusResults(data) {
     <p>Compared against thumbprint: <strong>${escapeHtml(data.thumbprint_name)}</strong> · ${data.paragraph_count} paragraphs</p>
   `;
   const scoreColor = scoreToColor(data.overall_score);
-  let html = `
+  const lowConfBanner = data.thumbprint_low_confidence
+    ? '<div class="low-confidence-banner" style="margin-bottom:0.75rem;padding:0.5rem 0.75rem;background:#fef3c7;border-radius:4px;font-size:0.8125rem;color:#92400e">This thumbprint was built from few paragraphs; scores may be less reliable.</div>'
+    : '';
+  let html = lowConfBanner + `
     <div class="overall-score">
       <div class="overall-score-value" style="color:${scoreColor}">${formatScore(data.overall_score)}</div>
       <div>
@@ -470,13 +510,14 @@ async function analyzeSelf() {
   log('info', `Starting self analysis: "${files[0].name}"…`);
 
   const fd = new FormData();
-  fd.append('file', files[0]);
+  fd.append('file', files[0].blob, files[0].name);
 
   try {
     const resp = await fetch('/api/analyze/self', { method: 'POST', body: fd });
-    const data = await resp.json();
+    let data;
+    try { data = await resp.json(); } catch (_) { data = {}; }
     if (!resp.ok) {
-      const msg = data.error || 'Analysis failed.';
+      const msg = data.error || `Server error (HTTP ${resp.status}).`;
       showError('self-error', msg);
       log('error', 'Self analysis failed', msg);
       setLoading(false);
@@ -541,9 +582,13 @@ function paragraphBlockHtml(p) {
   let tooltipParts = [`Score: ${formatScore(score)}`];
   if (p.style_similarity !== null) tooltipParts.push(`Style: ${formatScore(p.style_similarity)}`);
   if (p.embedding_similarity !== null) tooltipParts.push(`Semantic: ${formatScore(p.embedding_similarity)}`);
+  if (p.top_differing_features && p.top_differing_features.length > 0) {
+    const diffStr = p.top_differing_features.map(d => `${escapeHtml(d.name)} (|z|=${d.z_abs})`).join(', ');
+    tooltipParts.push(`Differing: ${diffStr}`);
+  }
   return `
     <div class="paragraph-block" style="border-left-color:${color}; background-color:${bgColor}">
-      <div class="paragraph-tooltip">${escapeHtml(tooltipParts.join(' · '))}</div>
+      <div class="paragraph-tooltip">${tooltipParts.join(' · ')}</div>
       ${escapeHtml(p.text)}
     </div>
   `;

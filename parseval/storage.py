@@ -164,6 +164,7 @@ def list_thumbprints() -> list:
                     "created_at": meta.get("created_at"),
                     "source_files": meta.get("source_files", []),
                     "paragraph_count": meta.get("paragraph_count", 0),
+                    "low_confidence": meta.get("low_confidence", False),
                 })
             except (json.JSONDecodeError, KeyError):
                 pass  # Skip corrupted entries

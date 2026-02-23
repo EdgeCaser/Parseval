@@ -27,3 +27,12 @@ nul
 
 # Parseval user data (stored in ~/.parseval, not in repo)
 # (just a reminder — this path is outside the repo anyway)
+
+# Debug logs (generated at runtime)
+debug-*.log
+
+# IDE (Cursor)
+.cursor/
+
+# Claude Code local settings
+.claude/

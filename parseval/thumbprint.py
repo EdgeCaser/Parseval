@@ -10,15 +10,18 @@ from datetime import datetime, timezone
 from parseval import corpus, features, embeddings, storage
 
 MIN_PARAGRAPHS = 5
+# Below this many paragraphs, thumbprint is marked low_confidence (small reference corpus)
+LOW_CONFIDENCE_PARAGRAPH_THRESHOLD = 15
 
 
-def create_thumbprint(name: str, file_paths: list, file_names: list) -> dict:
+def create_thumbprint(name: str, file_paths: list, file_names: list, use_mahal: bool = False) -> dict:
     """Create a new thumbprint from one or more files.
 
     Args:
         name:       Human-readable label for this thumbprint.
         file_paths: List of absolute paths to uploaded files.
         file_names: Corresponding original filenames (used for display and type detection).
+        use_mahal: If True, use Mahalanobis distance for style scoring (store covariance in profile).
 
     Returns:
         The metadata dict (same as what is stored in meta.json).
@@ -42,8 +45,8 @@ def create_thumbprint(name: str, file_paths: list, file_names: list) -> dict:
             f"found {len(all_paragraphs)}. Try providing longer or more files."
         )
 
-    # 2. Extract stylometric profile
-    stylometric_profile = features.extract_corpus_profile(all_paragraphs)
+    # 2. Extract stylometric profile (optionally with Mahalanobis covariance)
+    stylometric_profile = features.extract_corpus_profile(all_paragraphs, use_mahal=use_mahal)
 
     # 3. Compute paragraph embeddings
     model = embeddings.get_model()
@@ -51,13 +54,15 @@ def create_thumbprint(name: str, file_paths: list, file_names: list) -> dict:
     centroid, emb_std, expected_emb_sim = embeddings.compute_corpus_stats(emb_matrix)
 
     # 4. Assemble metadata
+    n_paras = len(all_paragraphs)
     meta = {
         "id": thumbprint_id,
         "name": name,
         "created_at": created_at,
         "source_files": file_names,
-        "paragraph_count": len(all_paragraphs),
+        "paragraph_count": n_paras,
         "stylometric_profile": stylometric_profile,
+        "low_confidence": n_paras < LOW_CONFIDENCE_PARAGRAPH_THRESHOLD,
     }
 
     embedding_data = {
@@ -73,10 +78,11 @@ def create_thumbprint(name: str, file_paths: list, file_names: list) -> dict:
     return meta
 
 
-def regenerate_thumbprint(thumbprint_id: str, file_paths: list, file_names: list) -> dict:
+def regenerate_thumbprint(thumbprint_id: str, file_paths: list, file_names: list, use_mahal: bool = False) -> dict:
     """Regenerate an existing thumbprint with new (or the same) files.
 
     Overwrites the stored thumbprint while keeping the same UUID.
+    use_mahal: If True, use Mahalanobis distance (store covariance in profile).
     """
     if not storage.thumbprint_exists(thumbprint_id):
         raise FileNotFoundError(f"Thumbprint not found: {thumbprint_id}")
@@ -99,20 +105,22 @@ def regenerate_thumbprint(thumbprint_id: str, file_paths: list, file_names: list
             f"found {len(all_paragraphs)}."
         )
 
-    stylometric_profile = features.extract_corpus_profile(all_paragraphs)
+    stylometric_profile = features.extract_corpus_profile(all_paragraphs, use_mahal=use_mahal)
 
     model = embeddings.get_model()
     emb_matrix = model.encode(all_paragraphs)
     centroid, emb_std, expected_emb_sim = embeddings.compute_corpus_stats(emb_matrix)
 
+    n_paras = len(all_paragraphs)
     meta = {
         "id": thumbprint_id,
         "name": name,
         "created_at": created_at,
         "regenerated_at": datetime.now(timezone.utc).isoformat(),
         "source_files": file_names,
-        "paragraph_count": len(all_paragraphs),
+        "paragraph_count": n_paras,
         "stylometric_profile": stylometric_profile,
+        "low_confidence": n_paras < LOW_CONFIDENCE_PARAGRAPH_THRESHOLD,
     }
 
     embedding_data = {
